@@ -1,4 +1,5 @@
 const ID3Writer = require("browser-id3-writer");
+const musicMetadata = require("music-metadata-browser");
 export const FLAC_HEADER = [0x66, 0x4C, 0x61, 0x43];
 export const MP3_HEADER = [0x49, 0x44, 0x33];
 export const OGG_HEADER = [0x4F, 0x67, 0x67, 0x53];
@@ -16,6 +17,7 @@ export const AudioMimeType = {
     wma: "audio/x-ms-wma",
     wav: "audio/x-wav"
 };
+export const IXAREA_API_ENDPOINT = "https://stats.ixarea.com/apis"
 
 // Also a new draft API: blob.arrayBuffer()
 export async function GetArrayBuffer(blobObject) {
@@ -84,18 +86,32 @@ export async function GetWebImage(pic_url) {
             let buf = await resp.arrayBuffer();
             let objBlob = new Blob([buf], {type: mime});
             let objUrl = URL.createObjectURL(objBlob);
-            return {"buffer": buf, "url": objUrl, "type": mime};
+            return {"buffer": buf, "src": pic_url, "url": objUrl, "type": mime};
         }
     } catch (e) {
     }
-    return {"buffer": null, "url": "", "type": ""}
+    return {"buffer": null, "src": pic_url, "url": "", "type": ""}
 }
 
-export async function WriteMp3Meta(audioData, artistList, title, album, pictureData = null, pictureDesc = "Cover") {
+export async function WriteMp3Meta(audioData, artistList, title, album, pictureData = null, pictureDesc = "Cover", originalMeta = null) {
     const writer = new ID3Writer(audioData);
-    writer.setFrame("TPE1", artistList)
-        .setFrame("TIT2", title)
-        .setFrame("TALB", album);
+    if (originalMeta !== null) {
+        artistList = originalMeta.common.artists || artistList
+        title = originalMeta.common.title || title
+        album = originalMeta.common.album || album
+        const frames = originalMeta.native['ID3v2.4'] || originalMeta.native['ID3v2.3'] || originalMeta.native['ID3v2.2'] || []
+        frames.forEach(frame => {
+            if (frame.id !== 'TPE1' && frame.id !== 'TIT2' && frame.id !== 'TALB') {
+                try {
+                    writer.setFrame(frame.id, frame.value)
+                } catch (e) {
+                }
+            }
+        })
+    }
+    writer.setFrame('TPE1', artistList)
+        .setFrame('TIT2', title)
+        .setFrame('TALB', album);
     if (pictureData !== null) {
         writer.setFrame('APIC', {
             type: 3,
@@ -107,20 +123,3 @@ export async function WriteMp3Meta(audioData, artistList, title, album, pictureD
     return writer.arrayBuffer;
 }
 
-export function RequestJsonp(url, callback_name = "callback") {
-    return new Promise((resolve, reject) => {
-        let node;
-        window[callback_name] = function (data) {
-            delete window[callback_name];
-            if (node.parentNode) node.parentNode.removeChild(node);
-            resolve(data)
-        };
-        node = document.createElement('script');
-        node.type = "text/javascript";
-        node.src = url;
-        node.addEventListener('error', msg => {
-            reject(msg);
-        });
-        document.head.appendChild(node);
-    });
-}
